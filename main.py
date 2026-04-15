@@ -9,21 +9,6 @@ from gui.main_window import MainWindow
 from gui.style import get_stylesheet
 
 
-def _verify_authorization(app: QApplication) -> bool:
-    """启动前验证 GitHub 仓库是否可访问，不可访问则弹窗退出。"""
-    from utils.updater import verify_repo
-
-    result = verify_repo()
-    if result["ok"]:
-        return True
-
-    if result["reason"] == "not_found":
-        QMessageBox.critical(None, "授权验证失败", "授权已失效，软件无法运行。")
-    else:
-        QMessageBox.critical(None, "授权验证失败", "无法验证授权，请检查网络连接。")
-    return False
-
-
 def main() -> None:
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
@@ -34,7 +19,18 @@ def main() -> None:
     app.setStyleSheet(get_stylesheet())
     app.setFont(QFont("Microsoft YaHei UI", 10))
 
-    if not _verify_authorization(app):
+    # 验证仓库授权
+    import requests
+    try:
+        resp = requests.get("https://api.github.com/repos/over958999-byte/King99", timeout=10)
+        if resp.status_code == 404:
+            QMessageBox.critical(None, "错误", "授权已失效，软件无法运行")
+            sys.exit(1)
+        elif resp.status_code != 200:
+            QMessageBox.critical(None, "错误", "授权验证失败，软件无法运行")
+            sys.exit(1)
+    except Exception:
+        QMessageBox.critical(None, "错误", "无法验证授权，请检查网络连接")
         sys.exit(1)
 
     window = MainWindow(config)
