@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QMainWindow, QTabWidget, QStatusBar, QApplication
+from PySide6.QtWidgets import QMainWindow, QTabWidget, QStatusBar, QApplication, QMenuBar, QMessageBox
 from PySide6.QtCore import QObject, QThread, Signal, Slot, QTimer
 
 from utils.config_loader import load_config
@@ -48,8 +48,16 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(500, self._auto_test_all_servers)
         # 启动后自动查询 HeroSMS 余额
         QTimer.singleShot(800, self._on_query_balance)
+        # 启动后自动检查更新（延迟执行，不阻塞启动）
+        QTimer.singleShot(2000, self._on_auto_check_update)
 
     def _init_ui(self):
+        # 菜单栏
+        menu_bar = self.menuBar()
+        help_menu = menu_bar.addMenu("帮助(&H)")
+        check_update_action = help_menu.addAction("检查更新(&U)")
+        check_update_action.triggered.connect(self._on_manual_check_update)
+
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
         self.setCentralWidget(self.tabs)
@@ -456,3 +464,86 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(f"加载运营商失败: {msg}")
 
         self._run_in_thread(_fetch, _on_ok, _on_err)
+
+    # ---------- 自动更新 ----------
+
+    def _on_auto_check_update(self):
+        """启动时自动检查更新（静默，有更新才弹窗）。"""
+        from utils.updater import check_for_update
+
+        def _on_ok(result):
+            if result.get("has_update"):
+                self.log_tab.append_log("检测到新版本可用")
+                self._prompt_update()
+            else:
+                self.log_tab.append_log("当前已是最新版本")
+
+        def _on_err(e):
+            # 网络异常静默失败
+            self.log_tab.append_log(f"自动检查更新失败（已忽略）: {e}")
+
+        self._run_in_thread(check_for_update, _on_ok, _on_err)
+
+    def _on_manual_check_update(self):
+        """用户手动点击"检查更新"。"""
+        from utils.updater import check_for_update
+
+        self.status_bar.showMessage("正在检查更新...")
+        self.log_tab.append_log("手动检查更新...")
+
+        def _on_ok(result):
+            if result.get("has_update"):
+                self.log_tab.append_log("检测到新版本可用")
+                self._prompt_update()
+            else:
+                self.status_bar.showMessage("当前已是最新版本")
+                self.log_tab.append_log("当前已是最新版本")
+                QMessageBox.information(self, "检查更新", "当前已是最新版本。")
+
+        def _on_err(e):
+            self.status_bar.showMessage("检查更新失败")
+            self.log_tab.append_log(f"检查更新失败: {e}")
+            QMessageBox.warning(self, "检查更新", f"检查更新失败：\n{e}")
+
+        self._run_in_thread(check_for_update, _on_ok, _on_err)
+
+    def _prompt_update(self):
+        """弹窗询问用户是否更新。"""
+        reply = QMessageBox.question(
+            self,
+            "发现新版本",
+            "检测到新版本可用，是否立即更新？\n更新完成后需要重启应用。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._do_update()
+
+    def _do_update(self):
+        """执行 git pull 更新。"""
+        from utils.updater import pull_update
+
+        self.status_bar.showMessage("正在更新...")
+        self.log_tab.append_log("正在拉取最新代码...")
+
+        def _on_ok(result):
+            if result.get("success"):
+                self.status_bar.showMessage("更新完成，请重启应用")
+                self.log_tab.append_log(f"更新成功: {result.get('message', '')}")
+                QMessageBox.information(
+                    self,
+                    "更新完成",
+                    "代码已更新到最新版本。\n请关闭并重新启动应用以使更新生效。",
+                )
+            else:
+                msg = result.get("message", "未知错误")
+                self.status_bar.showMessage("更新失败")
+                self.log_tab.append_log(f"更新失败: {msg}")
+                QMessageBox.warning(self, "更新失败", f"更新失败：\n{msg}")
+
+        def _on_err(e):
+            self.status_bar.showMessage("更新失败")
+            self.log_tab.append_log(f"更新异常: {e}")
+            QMessageBox.warning(self, "更新失败", f"更新过程出现异常：\n{e}")
+
+        self._run_in_thread(pull_update, _on_ok, _on_err)
