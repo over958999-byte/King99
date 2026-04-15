@@ -4,6 +4,10 @@
 """
 
 import subprocess
+import sys
+
+# Windows 下隐藏 subprocess 的控制台窗口
+_SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 
 def pull_update() -> dict:
@@ -19,6 +23,7 @@ def pull_update() -> dict:
         result = subprocess.run(
             ["git", "pull", "origin", "main"],
             capture_output=True, text=True, timeout=60,
+            creationflags=_SUBPROCESS_FLAGS,
         )
         output = result.stdout.strip()
         if result.returncode == 0:
