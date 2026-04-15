@@ -468,33 +468,50 @@ class MainWindow(QMainWindow):
     # ---------- 自动更新 ----------
 
     def _on_auto_check_update(self):
-        """启动时自动检查更新（静默，有更新才弹窗）。"""
-        from utils.updater import check_for_update
+        """启动时自动拉取更新（静默，有更新才提示重启）。"""
+        from utils.updater import pull_update
 
         def _on_ok(result):
+            if not result.get("success"):
+                self.log_tab.append_log(f"自动更新失败（已忽略）: {result.get('message', '')}")
+                return
             if result.get("has_update"):
-                self.log_tab.append_log("检测到新版本可用")
-                self._prompt_update()
+                self.log_tab.append_log(f"已拉取新版本: {result.get('message', '')}")
+                QMessageBox.information(
+                    self,
+                    "已更新",
+                    "已拉取到最新版本。\n请关闭并重新启动应用以使更新生效。",
+                )
             else:
                 self.log_tab.append_log("当前已是最新版本")
 
         def _on_err(e):
-            # 网络异常静默失败
-            self.log_tab.append_log(f"自动检查更新失败（已忽略）: {e}")
+            self.log_tab.append_log(f"自动更新失败（已忽略）: {e}")
 
-        self._run_in_thread(check_for_update, _on_ok, _on_err)
+        self._run_in_thread(pull_update, _on_ok, _on_err)
 
     def _on_manual_check_update(self):
         """用户手动点击"检查更新"。"""
-        from utils.updater import check_for_update
+        from utils.updater import pull_update
 
         self.status_bar.showMessage("正在检查更新...")
         self.log_tab.append_log("手动检查更新...")
 
         def _on_ok(result):
+            if not result.get("success"):
+                msg = result.get("message", "未知错误")
+                self.status_bar.showMessage("更新失败")
+                self.log_tab.append_log(f"更新失败: {msg}")
+                QMessageBox.warning(self, "更新失败", f"更新失败：\n{msg}")
+                return
             if result.get("has_update"):
-                self.log_tab.append_log("检测到新版本可用")
-                self._prompt_update()
+                self.status_bar.showMessage("已更新，请重启应用")
+                self.log_tab.append_log(f"已拉取新版本: {result.get('message', '')}")
+                QMessageBox.information(
+                    self,
+                    "已更新",
+                    "已拉取到最新版本。\n请关闭并重新启动应用以使更新生效。",
+                )
             else:
                 self.status_bar.showMessage("当前已是最新版本")
                 self.log_tab.append_log("当前已是最新版本")
@@ -504,46 +521,5 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage("检查更新失败")
             self.log_tab.append_log(f"检查更新失败: {e}")
             QMessageBox.warning(self, "检查更新", f"检查更新失败：\n{e}")
-
-        self._run_in_thread(check_for_update, _on_ok, _on_err)
-
-    def _prompt_update(self):
-        """弹窗询问用户是否更新。"""
-        reply = QMessageBox.question(
-            self,
-            "发现新版本",
-            "检测到新版本可用，是否立即更新？\n更新完成后需要重启应用。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            self._do_update()
-
-    def _do_update(self):
-        """执行 git pull 更新。"""
-        from utils.updater import pull_update
-
-        self.status_bar.showMessage("正在更新...")
-        self.log_tab.append_log("正在拉取最新代码...")
-
-        def _on_ok(result):
-            if result.get("success"):
-                self.status_bar.showMessage("更新完成，请重启应用")
-                self.log_tab.append_log(f"更新成功: {result.get('message', '')}")
-                QMessageBox.information(
-                    self,
-                    "更新完成",
-                    "代码已更新到最新版本。\n请关闭并重新启动应用以使更新生效。",
-                )
-            else:
-                msg = result.get("message", "未知错误")
-                self.status_bar.showMessage("更新失败")
-                self.log_tab.append_log(f"更新失败: {msg}")
-                QMessageBox.warning(self, "更新失败", f"更新失败：\n{msg}")
-
-        def _on_err(e):
-            self.status_bar.showMessage("更新失败")
-            self.log_tab.append_log(f"更新异常: {e}")
-            QMessageBox.warning(self, "更新失败", f"更新过程出现异常：\n{e}")
 
         self._run_in_thread(pull_update, _on_ok, _on_err)
